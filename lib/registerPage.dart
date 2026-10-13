@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:govassist/loginPage.dart';
-
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Registerpage extends StatefulWidget {
   const Registerpage({super.key});
@@ -40,79 +40,114 @@ class _RegisterpageState extends State<Registerpage> {
     super.dispose();
   }
 
-  Future<void> createAccount() async {
-    if (!_formKey.currentState!.validate()) return;
 
-    FocusScope.of(context).unfocus();
+Future<void> createAccount() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() => loading = true);
+  FocusScope.of(context).unfocus();
+  setState(() => loading = true);
 
-    try {
-      final userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+  try {
+    final name = _usernameController.text.trim();
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
 
-      await userCredential.user?.updateDisplayName(
-        _usernameController.text.trim(),
-      );
+    // 1. Create Firebase Authentication account.
+    final userCredential =
+        await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
 
-      if (!mounted) return;
+    final user = userCredential.user!;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created successfully!'),
-          backgroundColor: Colors.green,
+    // 2. Save the user's display name.
+    await user.updateDisplayName(name);
+
+    // 3. Determine the role and collection.
+    final String role = isStudent ? 'student' : 'admin';
+    final String collectionName =
+        isStudent ? 'students' : 'admins';
+
+    // 4. Save user details automatically in Firestore.
+    await FirebaseFirestore.instance
+    .collection(isStudent ? 'students' : 'admins')
+    .doc(user.uid)
+    .set({
+  'uid': user.uid,
+  'name': _usernameController.text.trim(),
+  'email': _emailController.text.trim(),
+  'role': isStudent ? 'student' : 'admin',
+  'createdAt': FieldValue.serverTimestamp(),
+});
+    // 5. Sign out so the user must log in next.
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Registration successful! Please log in.',
         ),
-      );
+        backgroundColor: Colors.green,
+      ),
+    );
 
-      // Optional: redirect to login after successful registration.
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const LoginPage(),
-        ),
-      );
-    } on FirebaseAuthException catch (e) {
-      String message;
+    // 6. Navigate to LoginPage.
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const LoginPage(),
+      ),
+    );
+  } on FirebaseAuthException catch (e) {
+    String message;
 
-      switch (e.code) {
-        case 'email-already-in-use':
-          message = 'This email is already registered.';
-          break;
-        case 'invalid-email':
-          message = 'Please enter a valid email address.';
-          break;
-        case 'weak-password':
-          message = 'Password must be at least 6 characters.';
-          break;
-        case 'network-request-failed':
-          message = 'Please check your internet connection.';
-          break;
-        default:
-          message = e.message ?? 'Account creation failed.';
-      }
+    switch (e.code) {
+      case 'email-already-in-use':
+        message = 'This email is already registered.';
+        break;
+      case 'invalid-email':
+        message = 'Please enter a valid email address.';
+        break;
+      case 'weak-password':
+        message = 'Password must be at least 6 characters.';
+        break;
+      case 'network-request-failed':
+        message = 'Please check your internet connection.';
+        break;
+      default:
+        message = e.message ?? 'Account creation failed.';
+    }
 
-      if (!mounted) return;
+    if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => loading = false);
-      }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not complete registration: $e'),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  } finally {
+    if (mounted) {
+      setState(() => loading = false);
     }
   }
+}
 
   InputDecoration inputDecoration(
     String hint,

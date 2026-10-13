@@ -1,8 +1,10 @@
 
 import 'package:flutter/material.dart';
-import 'package:govassist/AdminDashboard.dart';
+import 'package:govassist/adminDashboard%20.dart';
 import 'package:govassist/registerPage.dart';
 import 'package:govassist/studentdashboard.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -395,9 +397,10 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
- void _signIn() {
+ 
+Future<void> _signIn() async {
   final email = emailController.text.trim();
-  final password = passwordController.text.trim();
+  final password = passwordController.text;
 
   if (email.isEmpty || password.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -408,20 +411,80 @@ class _LoginPageState extends State<LoginPage> {
     return;
   }
 
-  if (isStudent) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const Studentdashboard(),
+  try {
+    // 1. Sign in using Firebase Authentication
+    final credential = await FirebaseAuth.instance
+        .signInWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    final user = credential.user;
+
+    if (user == null) {
+      throw Exception('Login failed. Please try again.');
+    }
+
+    // 2. Check which role the user has in Firestore
+    final adminDoc = await FirebaseFirestore.instance
+        .collection('admins')
+        .doc(user.uid)
+        .get();
+
+    final studentDoc = await FirebaseFirestore.instance
+        .collection('students')
+        .doc(user.uid)
+        .get();
+
+    // 3. Open the matching dashboard
+    if (!mounted) return;
+
+    if (isStudent && studentDoc.exists) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const Studentdashboard(),
+        ),
+      );
+    } else if (!isStudent && adminDoc.exists) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const AdminDashboard(),
+        ),
+      );
+    } else {
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isStudent
+                ? 'Student profile not found.'
+                : 'Admin profile not found.',
+          ),
+        ),
+      );
+    }
+  } on FirebaseAuthException catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(e.message ?? 'Login failed.'),
       ),
     );
-  } else {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const Admindashboard(),
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: $e'),
       ),
     );
   }
 }
+
 }
